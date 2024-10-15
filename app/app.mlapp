@@ -1,14 +1,14 @@
-classdef app2 < matlab.apps.AppBase
+classdef applicacao < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
         UIFigure              matlab.ui.Figure
-        CalcularerrosButton   matlab.ui.control.Button
-        Panel                 matlab.ui.container.Panel
         ControledeProcessosRemotoscomAtrasodePropagaoLabel  matlab.ui.control.Label
         IdentificaodeProcessoseSintoniadeControladoresPIDLabel  matlab.ui.control.Label
         ProjetoPrticodeSistemasEmbarcadosLabel  matlab.ui.control.Label
         Image                 matlab.ui.control.Image
+        CalcularerrosButton   matlab.ui.control.Button
+        Panel                 matlab.ui.container.Panel
         UIAxes_2              matlab.ui.control.UIAxes
         ErroTextArea          matlab.ui.control.TextArea
         GrficosDropDown       matlab.ui.control.DropDown
@@ -70,7 +70,7 @@ classdef app2 < matlab.apps.AppBase
 
         % Code that executes after component creation
         function startupFcn(app)
-           app.GrficosDropDown.Items = {'(Selecione)', 'Dataset', 'Malha Aberta/Fechada' , 'Ziegler-Nichols', 'Cohen-Coon'};
+           app.GrficosDropDown.Items = {'(Selecione)', 'Dataset', 'Comparação Original/Estimada' , 'Malha Aberta/Fechada' , 'Ziegler-Nichols', 'Cohen-Coon'};
            app.UIFigure.SizeChangedFcn = [];
 
            load("C:\Users\tcole\OneDrive\Documentos\C213-Leonardo Teodoro 5\C213-Leonardo Teodoro\Exemplos de Dataset\Datasets\Dataset_Grupo2.mat")
@@ -88,16 +88,10 @@ classdef app2 < matlab.apps.AppBase
 
         % Button pushed function: AplicarButton
         function AplicarButtonPushed(app, event)
-            % Ler os valores dos campos de edição
+           % Ler os valores dos campos de edição
             Kp = app.KpEditField.Value;
-            Td = app.TdEditField.Value;
             Ti = app.TiEditField.Value;
-        
-            % Certifique-se de que os valores sejam válidos
-            if isempty(Kp) || isempty(Td) || isempty(Ti)
-                uialert(app.UIFigure, 'Por favor, insira valores válidos para KP, TD e Ti.', 'Erro');
-                return;
-            end
+            Td = app.TdEditField.Value;
         
             % Implementação do sistema com os parâmetros atuais
             mediaDegrau = mean(app.degrau);
@@ -113,15 +107,14 @@ classdef app2 < matlab.apps.AppBase
             Ki = Kp/Ti;
             Kd = Kp*Td;
 
-            PID = tf([Kd Kp Ki], [1 0]); % Você pode precisar ajustar essa linha, dependendo da sua formulação
-        
-            % Sistema em malha fechada
+            PID = tf([Kd Kp Ki], [1 0]);
             sistemaMalhaFechada = feedback(series(PID, sys), 1);
-        
-            % Atualizando o gráfico
+            [app.Amplitude, app.Tempo] = step(sistemaMalhaFechada);
+
+            % Plotando a resposta do sistema em malha fechada
             cla(app.UIAxes_2);
-            step(app.UIAxes_2, sistemaMalhaFechada);
-            title(app.UIAxes_2, 'Controlador PID Ajustado');
+            plot(app.UIAxes_2, app.Tempo, app.Amplitude);
+            title(app.UIAxes_2, 'Resposta');
             xlabel(app.UIAxes_2, 'Tempo');
             ylabel(app.UIAxes_2, 'Amplitude');
         end
@@ -140,7 +133,7 @@ classdef app2 < matlab.apps.AppBase
             sys = tf(k, [tau 1], 'InputDelay', theta);
 
             if strcmp(value, 'Dataset')
-                % Caso 'Dataset': plota os dados brutos em malha aberta
+                % Caso 'Dataset': plotando os dados
                 cla(app.UIAxes_2);
                 xlabel(app.UIAxes_2, 'Tempo');
                 ylabel(app.UIAxes_2, 'Potência/Degrau');
@@ -150,37 +143,44 @@ classdef app2 < matlab.apps.AppBase
                 legend(app.UIAxes_2, 'Degrau', 'Potência motor', 'Location', 'southeast');
 
             elseif(strcmp(value, 'Malha Aberta/Fechada'))
-                [Amplitudes1, ~] = step(sys*mediaDegrau, app.tempo);
+                 % Malha Aberta
+                 [AmplitudesAberta, ~] = step(sys*mediaDegrau, app.tempo);
+                 
+                 % Malha Fechada
+                 sys_fechada =  feedback(sys, 1);
+                 [AmplitudesFechada, ~] = step(sys_fechada*mediaDegrau, app.tempo);
+                 
+                 cla(app.UIAxes_2)
+                 plot(app.UIAxes_2, app.tempo, AmplitudesAberta, 'm--', 'linewidth', 2.25)
+                 hold(app.UIAxes_2,'on')
+                 xlabel(app.UIAxes_2, 'Tempo')
+                 ylabel(app.UIAxes_2, 'Amplitude')
+                 plot(app.UIAxes_2, app.tempo, AmplitudesFechada, 'b-', 'linewidth', 2.25)
+
+            elseif(strcmp(value, 'Comparação Original/Estimada'))
+
+                [k1, tau1, theta1] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Smith');
+                sys1 = tf(k1, [tau1 1], 'InputDelay', theta1);
+                [Amplitudes1, ~] = step(sys1*mediaDegrau, app.tempo);
                 if size(Amplitudes1) ~= size(app.potenciaMotor)
                     Amplitudes1 = Amplitudes1';
                 end
                 erro1 = sqrt(mean((Amplitudes1 - app.potenciaMotor).^2));
-            
-                [k2, tau2, theta2] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Sundaresan');
-                sys2 = tf(k2, [tau2 1], 'InputDelay', theta2);
-                [Amplitudes2, ~] = step(sys2*mediaDegrau, app.tempo);
-                if size(Amplitudes2) ~= size(app.potenciaMotor)
-                    Amplitudes2 = Amplitudes2';
-                end
-                erro2 = sqrt(mean((Amplitudes2 - app.potenciaMotor).^2));
-
+                
                 cla(app.UIAxes_2)
                 plot(app.UIAxes_2, app.tempo, app.potenciaMotor,'k')
                 hold(app.UIAxes_2,'on')
                 xlabel(app.UIAxes_2, 'Tempo')
                 ylabel(app.UIAxes_2, 'Amplitude')
-                if erro1 < erro2
-                    plot(app.UIAxes_2, app.tempo, Amplitudes1, 'm--', 'linewidth', 2.25)
-                else
-                    plot(app.UIAxes_2, app.tempo, Amplitudes2, 'm--', 'linewidth', 2.25)
-                end
-            else
+                plot(app.UIAxes_2, app.tempo, Amplitudes1, 'm--', 'linewidth', 2.25)
                 
+            else
                 if strcmp(value, 'Ziegler-Nichols')
                     % Parâmetros PID usando Ziegler-Nichols
                     kp = 1.2 * tau / (k * theta);
                     Ti = 2 * theta; ki = kp / Ti;
                     Td = theta / 2; kd = kp * Td;
+                    legenda = 'Ziegler-Nichols';
                 
                 elseif strcmp(value, 'Cohen-Coon')
                     % Parâmetros PID usando Cohen-Coon
@@ -189,6 +189,7 @@ classdef app2 < matlab.apps.AppBase
                     ki = kp / Ti;
                     Td = (4 * theta) / (11 + (2 * theta / tau));
                     kd = kp * Td;
+                    legenda = 'Cohen-Coon';
                 end
     
                 % Função de transferência do controlador PID
@@ -199,8 +200,7 @@ classdef app2 < matlab.apps.AppBase
                 % Plotando a resposta do sistema em malha fechada
                 cla(app.UIAxes_2);
                 plot(app.UIAxes_2, app.Tempo, app.Amplitude);
-                
-                title(app.UIAxes_2, 'Ziegler-Nichols - Sistema em Malha Fechada');
+                title(app.UIAxes_2, legenda);
                 xlabel(app.UIAxes_2, 'Tempo');
                 ylabel(app.UIAxes_2, 'Amplitude');
             end
@@ -309,7 +309,7 @@ classdef app2 < matlab.apps.AppBase
             app.Panel = uipanel(app.UIFigure);
             app.Panel.AutoResizeChildren = 'off';
             app.Panel.BorderType = 'none';
-            app.Panel.Position = [1 1 897 600];
+            app.Panel.Position = [1 1 897 470];
 
             % Create UIAxes_2
             app.UIAxes_2 = uiaxes(app.Panel);
@@ -317,34 +317,7 @@ classdef app2 < matlab.apps.AppBase
             xlabel(app.UIAxes_2, 'X')
             ylabel(app.UIAxes_2, 'Y')
             zlabel(app.UIAxes_2, 'Z')
-            app.UIAxes_2.ClippingStyle = 'rectangle';
-            app.UIAxes_2.Position = [14 23 884 464];
-
-            % Create Image
-            app.Image = uiimage(app.Panel);
-            app.Image.Position = [14 511 179 90];
-            app.Image.ImageSource = fullfile(pathToMLAPP, 'Logo-Inatel.png');
-
-            % Create ProjetoPrticodeSistemasEmbarcadosLabel
-            app.ProjetoPrticodeSistemasEmbarcadosLabel = uilabel(app.Panel);
-            app.ProjetoPrticodeSistemasEmbarcadosLabel.HorizontalAlignment = 'center';
-            app.ProjetoPrticodeSistemasEmbarcadosLabel.FontSize = 18;
-            app.ProjetoPrticodeSistemasEmbarcadosLabel.Position = [248 560 505 25];
-            app.ProjetoPrticodeSistemasEmbarcadosLabel.Text = 'Projeto Prático de Sistemas Embarcados';
-
-            % Create IdentificaodeProcessoseSintoniadeControladoresPIDLabel
-            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel = uilabel(app.Panel);
-            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.HorizontalAlignment = 'center';
-            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.FontSize = 18;
-            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Position = [248 536 505 25];
-            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Text = 'Identificação de Processos e Sintonia de Controladores PID';
-
-            % Create ControledeProcessosRemotoscomAtrasodePropagaoLabel
-            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel = uilabel(app.Panel);
-            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.HorizontalAlignment = 'center';
-            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.FontSize = 18;
-            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Position = [248 509 505 27];
-            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Text = 'Controle de Processos Remotos com Atraso de Propagação';
+            app.UIAxes_2.Position = [1 1 897 470];
 
             % Create CalcularerrosButton
             app.CalcularerrosButton = uibutton(app.UIFigure, 'push');
@@ -353,6 +326,32 @@ classdef app2 < matlab.apps.AppBase
             app.CalcularerrosButton.FontSize = 14;
             app.CalcularerrosButton.Position = [992 84 120 35];
             app.CalcularerrosButton.Text = 'Calcular erros';
+
+            % Create Image
+            app.Image = uiimage(app.UIFigure);
+            app.Image.Position = [15 511 179 90];
+            app.Image.ImageSource = fullfile(pathToMLAPP, 'Logo-Inatel.png');
+
+            % Create ProjetoPrticodeSistemasEmbarcadosLabel
+            app.ProjetoPrticodeSistemasEmbarcadosLabel = uilabel(app.UIFigure);
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.HorizontalAlignment = 'center';
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.FontSize = 18;
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.Position = [249 560 505 25];
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.Text = 'Projeto Prático de Sistemas Embarcados';
+
+            % Create IdentificaodeProcessoseSintoniadeControladoresPIDLabel
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel = uilabel(app.UIFigure);
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.HorizontalAlignment = 'center';
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.FontSize = 18;
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Position = [249 536 505 25];
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Text = 'Identificação de Processos e Sintonia de Controladores PID';
+
+            % Create ControledeProcessosRemotoscomAtrasodePropagaoLabel
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel = uilabel(app.UIFigure);
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.HorizontalAlignment = 'center';
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.FontSize = 18;
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Position = [249 509 505 27];
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Text = 'Controle de Processos Remotos com Atraso de Propagação';
 
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
@@ -363,7 +362,7 @@ classdef app2 < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = app2
+        function app = applicacao
 
             % Create UIFigure and components
             createComponents(app)

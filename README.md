@@ -1,5 +1,5 @@
-Leonardo Teodoro Costa de Oliveira
-Luiza Ribeiro de Martha
+Leonardo Teodoro Costa de Oliveira, 
+Luiza Ribeiro de Martha, 
 Nicholas do Vale Siécola
 
 Primeiro Projeto de C213

@@ -1,0 +1,389 @@
+classdef app2 < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure              matlab.ui.Figure
+        CalcularerrosButton   matlab.ui.control.Button
+        Panel                 matlab.ui.container.Panel
+        ControledeProcessosRemotoscomAtrasodePropagaoLabel  matlab.ui.control.Label
+        IdentificaodeProcessoseSintoniadeControladoresPIDLabel  matlab.ui.control.Label
+        ProjetoPrticodeSistemasEmbarcadosLabel  matlab.ui.control.Label
+        Image                 matlab.ui.control.Image
+        UIAxes_2              matlab.ui.control.UIAxes
+        ErroTextArea          matlab.ui.control.TextArea
+        GrficosDropDown       matlab.ui.control.DropDown
+        GrficosDropDownLabel  matlab.ui.control.Label
+        AplicarButton         matlab.ui.control.Button
+        TiEditField           matlab.ui.control.NumericEditField
+        TiEditFieldLabel      matlab.ui.control.Label
+        TdEditField           matlab.ui.control.NumericEditField
+        TdEditFieldLabel      matlab.ui.control.Label
+        KpEditField           matlab.ui.control.NumericEditField
+        KpEditFieldLabel      matlab.ui.control.Label
+    end
+
+    
+    properties (Access = public)
+        Step, Time, Output, Method, tempo, degrau, potenciaMotor
+        Tempo, Amplitude
+    end
+
+    
+    methods (Access = public)
+        
+        function [k, tau, theta] = identificacaoSistemas(app, Step, Time, Output, Method)
+ 
+          arguments
+              app
+              Step (1,1) double {mustBeFinite, mustBeNonzero, mustBeReal, mustBeNumeric}
+              Time (1,:) {mustBeNonempty}
+              Output (1,:) {mustBeNonempty}
+              Method (1,:) char {mustBeNonzeroLengthText, mustBeText, mustBeMember(Method, {'Smith' 'Sundaresan'})}
+          end
+        
+          initialOutput = Output(1);
+          Output = Output - initialOutput;
+          finalOutput = Output(end);
+          k = finalOutput/Step;
+        
+          if(strcmp(Method, 'Smith'))
+              t1 = find(Output >= finalOutput * (28.3/100));
+              t1 = Time(t1(1));
+              t2 = find(Output >= finalOutput * (63.2/100));
+              t2 = Time(t2(1));
+              tau = 1.5 *(t2-t1);
+              theta = t2 - tau;
+        
+          else
+              t1 = find(Output >= finalOutput * (35.3/100));
+              t1 = Time(t1(1));
+              t2 = find(Output >= finalOutput * (85.3/100));
+              t2 = Time(t2(1));
+              tau = 2/3*(t2-t1);
+              theta = 1.3*t1 - 0.29*t2;
+          end
+        end
+    end
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function startupFcn(app)
+           app.GrficosDropDown.Items = {'(Selecione)', 'Dataset', 'Malha Aberta/Fechada' , 'Ziegler-Nichols', 'Cohen-Coon'};
+           app.UIFigure.SizeChangedFcn = [];
+
+           load("C:\Users\tcole\OneDrive\Documentos\C213-Leonardo Teodoro 5\C213-Leonardo Teodoro\Exemplos de Dataset\Datasets\Dataset_Grupo2.mat")
+           [linha, coluna] = size(TARGET_DATA____ProjetoC213_Degrau);
+           if linha < coluna
+               app.tempo = TARGET_DATA____ProjetoC213_Degrau(1,:);
+               app.degrau = TARGET_DATA____ProjetoC213_Degrau(2,:);
+               app.potenciaMotor = TARGET_DATA____ProjetoC213_PotenciaMotor(2,:);
+           else
+               app.tempo = TARGET_DATA____ProjetoC213_Degrau(:,1);
+               app.degrau = TARGET_DATA____ProjetoC213_Degrau(:,2);
+               app.potenciaMotor = TARGET_DATA____ProjetoC213_PotenciaMotor(:,2);
+           end
+        end
+
+        % Button pushed function: AplicarButton
+        function AplicarButtonPushed(app, event)
+            % Ler os valores dos campos de edição
+            Kp = app.KpEditField.Value;
+            Td = app.TdEditField.Value;
+            Ti = app.TiEditField.Value;
+        
+            % Certifique-se de que os valores sejam válidos
+            if isempty(Kp) || isempty(Td) || isempty(Ti)
+                uialert(app.UIFigure, 'Por favor, insira valores válidos para KP, TD e Ti.', 'Erro');
+                return;
+            end
+        
+            % Implementação do sistema com os parâmetros atuais
+            mediaDegrau = mean(app.degrau);
+            valorInicial = app.potenciaMotor(1);
+            app.potenciaMotor = app.potenciaMotor - valorInicial;
+        
+            % Recalculando sys a partir dos dados atuais
+            [k, tau, theta] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Smith');
+            sys = tf(k, [tau 1], 'InputDelay', theta);
+        
+            % Calculando a função de transferência do controlador PID
+            % Usando os parâmetros fornecidos pelo usuário
+            Ki = Kp/Ti;
+            Kd = Kp*Td;
+
+            PID = tf([Kd Kp Ki], [1 0]); % Você pode precisar ajustar essa linha, dependendo da sua formulação
+        
+            % Sistema em malha fechada
+            sistemaMalhaFechada = feedback(series(PID, sys), 1);
+        
+            % Atualizando o gráfico
+            cla(app.UIAxes_2);
+            step(app.UIAxes_2, sistemaMalhaFechada);
+            title(app.UIAxes_2, 'Controlador PID Ajustado');
+            xlabel(app.UIAxes_2, 'Tempo');
+            ylabel(app.UIAxes_2, 'Amplitude');
+        end
+
+        % Value changed function: GrficosDropDown
+        function GrficosDropDownValueChanged(app, event)
+            % Captura a seleção do DropDown
+            value = app.GrficosDropDown.Value;
+            title(app.UIAxes_2, value);
+
+            mediaDegrau = mean(app.degrau);
+            valorInicial = app.potenciaMotor(1);
+            app.potenciaMotor = app.potenciaMotor - valorInicial;
+
+            [k, tau, theta] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Smith');
+            sys = tf(k, [tau 1], 'InputDelay', theta);
+
+            if strcmp(value, 'Dataset')
+                % Caso 'Dataset': plota os dados brutos em malha aberta
+                cla(app.UIAxes_2);
+                xlabel(app.UIAxes_2, 'Tempo');
+                ylabel(app.UIAxes_2, 'Potência/Degrau');
+                plot(app.UIAxes_2, app.tempo, app.degrau, 'b--', 'linewidth', 1.25);
+                hold(app.UIAxes_2, 'on');
+                plot(app.UIAxes_2, app.tempo, app.potenciaMotor, 'g-', 'linewidth', 1.25);
+                legend(app.UIAxes_2, 'Degrau', 'Potência motor', 'Location', 'southeast');
+
+            elseif(strcmp(value, 'Malha Aberta/Fechada'))
+                [Amplitudes1, ~] = step(sys*mediaDegrau, app.tempo);
+                if size(Amplitudes1) ~= size(app.potenciaMotor)
+                    Amplitudes1 = Amplitudes1';
+                end
+                erro1 = sqrt(mean((Amplitudes1 - app.potenciaMotor).^2));
+            
+                [k2, tau2, theta2] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Sundaresan');
+                sys2 = tf(k2, [tau2 1], 'InputDelay', theta2);
+                [Amplitudes2, ~] = step(sys2*mediaDegrau, app.tempo);
+                if size(Amplitudes2) ~= size(app.potenciaMotor)
+                    Amplitudes2 = Amplitudes2';
+                end
+                erro2 = sqrt(mean((Amplitudes2 - app.potenciaMotor).^2));
+
+                cla(app.UIAxes_2)
+                plot(app.UIAxes_2, app.tempo, app.potenciaMotor,'k')
+                hold(app.UIAxes_2,'on')
+                xlabel(app.UIAxes_2, 'Tempo')
+                ylabel(app.UIAxes_2, 'Amplitude')
+                if erro1 < erro2
+                    plot(app.UIAxes_2, app.tempo, Amplitudes1, 'm--', 'linewidth', 2.25)
+                else
+                    plot(app.UIAxes_2, app.tempo, Amplitudes2, 'm--', 'linewidth', 2.25)
+                end
+            else
+                
+                if strcmp(value, 'Ziegler-Nichols')
+                    % Parâmetros PID usando Ziegler-Nichols
+                    kp = 1.2 * tau / (k * theta);
+                    Ti = 2 * theta; ki = kp / Ti;
+                    Td = theta / 2; kd = kp * Td;
+                
+                elseif strcmp(value, 'Cohen-Coon')
+                    % Parâmetros PID usando Cohen-Coon
+                    kp = (tau/(k*theta))*((16*tau + 3*theta)/(12*tau));
+                    Ti = theta * ((32 + (6 * theta / tau)) / (13 + (8 * theta / tau)));
+                    ki = kp / Ti;
+                    Td = (4 * theta) / (11 + (2 * theta / tau));
+                    kd = kp * Td;
+                end
+    
+                % Função de transferência do controlador PID
+                PID = tf([kd kp ki], [1 0]);
+                sistemaMalhaFechada = feedback(series(PID, sys), 1);
+                [app.Amplitude, app.Tempo] = step(sistemaMalhaFechada);
+
+                % Plotando a resposta do sistema em malha fechada
+                cla(app.UIAxes_2);
+                plot(app.UIAxes_2, app.Tempo, app.Amplitude);
+                
+                title(app.UIAxes_2, 'Ziegler-Nichols - Sistema em Malha Fechada');
+                xlabel(app.UIAxes_2, 'Tempo');
+                ylabel(app.UIAxes_2, 'Amplitude');
+            end
+        end
+
+        % Button pushed function: CalcularerrosButton
+        function CalcularerrosButtonPushed(app, event)
+           mediaDegrau = mean(app.degrau);
+           valorInicial = app.potenciaMotor(1);
+           app.potenciaMotor = app.potenciaMotor - valorInicial;
+           
+           [k1, tau1, theta1] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Smith');
+           sys1 = tf(k1, [tau1 1], 'InputDelay', theta1);
+           [Amplitudes1, ~] = step(sys1 * mediaDegrau, app.tempo);
+           if size(Amplitudes1) ~= size(app.potenciaMotor)
+               Amplitudes1 = Amplitudes1';
+           end
+           erro1 = sqrt(mean((Amplitudes1 - app.potenciaMotor).^2));
+           
+           [k2, tau2, theta2] = identificacaoSistemas(app, mediaDegrau, app.tempo, app.potenciaMotor, 'Sundaresan');
+           sys2 = tf(k2, [tau2 1], 'InputDelay', theta2);
+           [Amplitudes2, ~] = step(sys2 * mediaDegrau, app.tempo);
+           if size(Amplitudes2) ~= size(app.potenciaMotor)
+               Amplitudes2 = Amplitudes2';
+           end
+           erro2 = sqrt(mean((Amplitudes2 - app.potenciaMotor).^2));
+
+           app.ErroTextArea.Value = {['Erro Smith: ', num2str(erro1)]; ...
+                                ['Erro Sundaresan: ', num2str(erro2)]};
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Get the file path for locating images
+            pathToMLAPP = fileparts(mfilename('fullpath'));
+
+            % Create UIFigure and hide until all components are created
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.AutoResizeChildren = 'off';
+            app.UIFigure.Position = [100 100 1212 600];
+            app.UIFigure.Name = 'MATLAB App';
+            app.UIFigure.Resize = 'off';
+
+            % Create KpEditFieldLabel
+            app.KpEditFieldLabel = uilabel(app.UIFigure);
+            app.KpEditFieldLabel.HorizontalAlignment = 'right';
+            app.KpEditFieldLabel.Position = [1007 449 25 22];
+            app.KpEditFieldLabel.Text = 'Kp';
+
+            % Create KpEditField
+            app.KpEditField = uieditfield(app.UIFigure, 'numeric');
+            app.KpEditField.Position = [1047 449 100 22];
+
+            % Create TdEditFieldLabel
+            app.TdEditFieldLabel = uilabel(app.UIFigure);
+            app.TdEditFieldLabel.HorizontalAlignment = 'right';
+            app.TdEditFieldLabel.Position = [1007 314 25 22];
+            app.TdEditFieldLabel.Text = 'Td';
+
+            % Create TdEditField
+            app.TdEditField = uieditfield(app.UIFigure, 'numeric');
+            app.TdEditField.Position = [1047 314 100 22];
+
+            % Create TiEditFieldLabel
+            app.TiEditFieldLabel = uilabel(app.UIFigure);
+            app.TiEditFieldLabel.HorizontalAlignment = 'right';
+            app.TiEditFieldLabel.Position = [1007 383 25 22];
+            app.TiEditFieldLabel.Text = 'Ti';
+
+            % Create TiEditField
+            app.TiEditField = uieditfield(app.UIFigure, 'numeric');
+            app.TiEditField.Position = [1047 383 100 22];
+
+            % Create AplicarButton
+            app.AplicarButton = uibutton(app.UIFigure, 'push');
+            app.AplicarButton.ButtonPushedFcn = createCallbackFcn(app, @AplicarButtonPushed, true);
+            app.AplicarButton.FontSize = 14;
+            app.AplicarButton.Position = [1006 233 120 35];
+            app.AplicarButton.Text = 'Aplicar';
+
+            % Create GrficosDropDownLabel
+            app.GrficosDropDownLabel = uilabel(app.UIFigure);
+            app.GrficosDropDownLabel.HorizontalAlignment = 'right';
+            app.GrficosDropDownLabel.Position = [924 551 50 22];
+            app.GrficosDropDownLabel.Text = 'Gráficos';
+
+            % Create GrficosDropDown
+            app.GrficosDropDown = uidropdown(app.UIFigure);
+            app.GrficosDropDown.Items = {'(Selecione)', 'Dataset', 'Malha aberta/fechada'};
+            app.GrficosDropDown.ValueChangedFcn = createCallbackFcn(app, @GrficosDropDownValueChanged, true);
+            app.GrficosDropDown.Position = [989 551 189 22];
+            app.GrficosDropDown.Value = '(Selecione)';
+
+            % Create ErroTextArea
+            app.ErroTextArea = uitextarea(app.UIFigure);
+            app.ErroTextArea.Editable = 'off';
+            app.ErroTextArea.FontSize = 14;
+            app.ErroTextArea.Position = [962 24 180 44];
+
+            % Create Panel
+            app.Panel = uipanel(app.UIFigure);
+            app.Panel.AutoResizeChildren = 'off';
+            app.Panel.BorderType = 'none';
+            app.Panel.Position = [1 1 897 600];
+
+            % Create UIAxes_2
+            app.UIAxes_2 = uiaxes(app.Panel);
+            title(app.UIAxes_2, 'Selecione uma opção')
+            xlabel(app.UIAxes_2, 'X')
+            ylabel(app.UIAxes_2, 'Y')
+            zlabel(app.UIAxes_2, 'Z')
+            app.UIAxes_2.ClippingStyle = 'rectangle';
+            app.UIAxes_2.Position = [14 23 884 464];
+
+            % Create Image
+            app.Image = uiimage(app.Panel);
+            app.Image.Position = [14 511 179 90];
+            app.Image.ImageSource = fullfile(pathToMLAPP, 'Logo-Inatel.png');
+
+            % Create ProjetoPrticodeSistemasEmbarcadosLabel
+            app.ProjetoPrticodeSistemasEmbarcadosLabel = uilabel(app.Panel);
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.HorizontalAlignment = 'center';
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.FontSize = 18;
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.Position = [248 560 505 25];
+            app.ProjetoPrticodeSistemasEmbarcadosLabel.Text = 'Projeto Prático de Sistemas Embarcados';
+
+            % Create IdentificaodeProcessoseSintoniadeControladoresPIDLabel
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel = uilabel(app.Panel);
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.HorizontalAlignment = 'center';
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.FontSize = 18;
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Position = [248 536 505 25];
+            app.IdentificaodeProcessoseSintoniadeControladoresPIDLabel.Text = 'Identificação de Processos e Sintonia de Controladores PID';
+
+            % Create ControledeProcessosRemotoscomAtrasodePropagaoLabel
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel = uilabel(app.Panel);
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.HorizontalAlignment = 'center';
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.FontSize = 18;
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Position = [248 509 505 27];
+            app.ControledeProcessosRemotoscomAtrasodePropagaoLabel.Text = 'Controle de Processos Remotos com Atraso de Propagação';
+
+            % Create CalcularerrosButton
+            app.CalcularerrosButton = uibutton(app.UIFigure, 'push');
+            app.CalcularerrosButton.ButtonPushedFcn = createCallbackFcn(app, @CalcularerrosButtonPushed, true);
+            app.CalcularerrosButton.BackgroundColor = [1 1 1];
+            app.CalcularerrosButton.FontSize = 14;
+            app.CalcularerrosButton.Position = [992 84 120 35];
+            app.CalcularerrosButton.Text = 'Calcular erros';
+
+            % Show the figure after all components are created
+            app.UIFigure.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = app2
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.UIFigure)
+
+            % Execute the startup function
+            runStartupFcn(app, @startupFcn)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.UIFigure)
+        end
+    end
+end
